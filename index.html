@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mittagessen bestellen</title>
+<style>
+  :root {
+    --bg: #f6f3ee; --card: #ffffff; --ink: #1f1c18; --muted: #6f675d; --line: #e6dfd4;
+    --accent: #b5562b; --accent-ink: #ffffff; --accent-soft: #f6e4d9; --ok: #2f7a4b; --closed: #9a948b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171512; --card: #221f1b; --ink: #f1ece4; --muted: #a59d92; --line: #36312a;
+            --accent: #e07a46; --accent-ink: #1b120c; --accent-soft: #3a2619; --ok: #6cc28e; --closed: #6b655d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 20px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 4px 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: .95rem; }
+  .banner { background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: .9rem; }
+  .who { display: flex; gap: 8px; align-items: center; background: var(--card); border: 1px solid var(--line);
+         border-radius: 12px; padding: 10px 12px; margin-bottom: 16px; }
+  .who label { font-weight: 600; white-space: nowrap; }
+  select { flex: 1; min-width: 0; font: inherit; color: inherit; background: var(--card);
+           border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  input[type=text], input[type=password] { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent;
+         border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tab { flex: 1; font: inherit; font-weight: 600; padding: 9px; border-radius: 10px; border: 1px solid var(--line);
+         background: var(--card); color: var(--ink); cursor: pointer; }
+  .tab[aria-selected=true] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .day { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 14px; overflow: hidden; }
+  .day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 14px 8px; }
+  .day-head h2 { font-size: 1.1rem; margin: 0; }
+  .when { font-size: .8rem; color: var(--muted); text-align: right; }
+  .when.closed { color: var(--closed); }
+  .dish { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: inherit;
+          background: none; border: 0; border-top: 1px solid var(--line); padding: 10px 14px; cursor: pointer; }
+  .dish:disabled { cursor: default; }
+  .dish:not(:disabled):hover { background: var(--accent-soft); }
+  .dot { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); margin-top: 2px; }
+  .dish.mine .dot { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+  .dish.mine { background: var(--accent-soft); }
+  .info { flex: 1; min-width: 0; }
+  .line { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .title { font-weight: 600; }
+  .desc { font-size: .88rem; color: var(--muted); }
+  .names { font-size: .8rem; color: var(--ok); margin-top: 2px; }
+  .count { flex: none; min-width: 28px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums;
+           border-radius: 999px; padding: 1px 8px; background: var(--bg); }
+  .count.has { background: var(--accent); color: var(--accent-ink); }
+  .none .title { font-weight: 500; color: var(--muted); }
+  .sum { border-top: 1px solid var(--line); padding: 10px 14px; font-size: .88rem; color: var(--muted); }
+  .sum b { color: var(--ink); }
+  .msg { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+         padding: 10px 16px; border-radius: 10px; font-size: .9rem; max-width: calc(100% - 32px); display: none; }
+  .empty, .loading { color: var(--muted); padding: 30px 0; text-align: center; }
+  .gate { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .gate .row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 8px 14px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mittagessen 🍽️</h1>
+  <p class="sub">Tipp dein Essen an – der Bot bestellt automatisch bei Meyer Menü.</p>
+  <div id="app"><div class="loading">Speiseplan wird geladen …</div></div>
+</div>
+<div class="msg" id="msg"></div>
+
+<script>
+  // ── Verbindung zum Bot (Google Apps Script) ──
+  // Ohne Google-Cookies (credentials: 'omit'), deshalb egal, wie viele Google-Konten auf dem Handy angemeldet sind.
+  var API_URL = 'https://script.google.com/macros/s/AKfycbwTUGzsaOIaZKTfegwbCZKzhtCi7wAHRhYOQj7y9gNoQLhv5OEmTt_NN-MREQb24Tn2/exec';
+
+  function callBot(payload, onOk, onErr) {
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      credentials: 'omit',
+      redirect: 'follow'
+    }).then(function (r) { return r.json(); })
+      .then(function (res) { if (res && res.ok) onOk(res.data); else onErr(new Error((res && res.error) || 'Unbekannter Fehler.')); })
+      .catch(function () { onErr(new Error('Keine Verbindung zum Bot. Bitte gleich nochmal versuchen.')); });
+  }
+
+  // Gleiche Schnittstelle wie google.script.run, damit der Rest der Seite unverändert bleibt.
+  var google = { script: {} };
+  Object.defineProperty(google.script, 'run', { get: function () {
+    var ok = function () {}, err = function () {};
+    var runner = {
+      withSuccessHandler: function (f) { ok = f; return runner; },
+      withFailureHandler: function (f) { err = f; return runner; },
+      getState: function (code) { callBot({ action: 'state', code: code }, ok, err); },
+      vote: function (code, name, year, week, day, line) {
+        callBot({ action: 'vote', code: code, name: name, year: year, week: week, day: day, line: line }, ok, err);
+      }
+    };
+    return runner;
+  } });
+</script>
+
+<script>
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  var state = null, tab = 0, busy = false;
+  var code = store.get('mm_code');
+  var name = store.get('mm_name');
+
+  function toast(t) {
+    var m = document.getElementById('msg'); m.textContent = t; m.style.display = 'block';
+    clearTimeout(toast.t); toast.t = setTimeout(function () { m.style.display = 'none'; }, 3500);
+  }
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function fmtDate(iso) { var d = new Date(iso); return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }); }
+  function fmtDeadline(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' +
+           d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function load() {
+    google.script.run.withSuccessHandler(function (s) { state = s; render(); })
+      .withFailureHandler(function (e) {
+        if (/Team-Code/.test(e.message)) { renderGate(code ? e.message : ''); return; }
+        document.getElementById('app').innerHTML = '<div class="empty">Fehler: ' + esc(e.message) + '</div>';
+      }).getState(code);
+  }
+
+  function renderGate(err) {
+    document.getElementById('app').innerHTML =
+      '<div class="gate"><b>Team-Code</b><div class="sub" style="margin:4px 0 0">Steht in der WhatsApp-Gruppe.</div>' +
+      '<div class="row"><input type="password" id="codeIn" autocomplete="off"><button class="btn" id="codeBtn">OK</button></div>' +
+      (err ? '<div class="names" style="color:var(--accent)">' + esc(err) + '</div>' : '') + '</div>';
+    var submit = function () {
+      code = document.getElementById('codeIn').value.trim(); store.set('mm_code', code); load();
+    };
+    document.getElementById('codeBtn').onclick = submit;
+    document.getElementById('codeIn').onkeydown = function (e) { if (e.key === 'Enter') submit(); };
+    document.getElementById('codeIn').focus();
+  }
+
+  function render() {
+    var app = document.getElementById('app');
+    if (!state.weeks.length) { app.innerHTML = '<div class="empty">Kein Speiseplan gefunden.</div>'; return; }
+    var me = name.trim().toLowerCase();
+    var h = '';
+    if (state.dryRun) h += '<div class="banner">Testmodus: Stimmen werden gesammelt, aber noch nicht wirklich bestellt.</div>';
+    if (state.names && state.names.length) {
+      var known = state.names.some(function (n) { return n.toLowerCase() === me; });
+      if (!known) { name = ''; me = ''; }
+      h += '<div class="who"><label for="nameIn">Ich bin</label><select id="nameIn"><option value="">– bitte wählen –</option>' +
+        state.names.map(function (n) {
+          return '<option' + (n.toLowerCase() === me ? ' selected' : '') + '>' + esc(n) + '</option>';
+        }).join('') + '</select></div>';
+    } else {
+      h += '<div class="who"><label for="nameIn">Dein Name</label><input type="text" id="nameIn" maxlength="40" placeholder="z. B. Steve" value="' + esc(name) + '"></div>';
+    }
+    h += '<div class="tabs" role="tablist">' + state.weeks.map(function (w, i) {
+      return '<button class="tab" role="tab" data-tab="' + i + '" aria-selected="' + (i === tab) + '">' +
+        (i === 0 ? 'Diese Woche' : 'Nächste Woche') + '<br><small style="font-weight:400;opacity:.7">KW ' + w.week + '</small></button>';
+    }).join('') + '</div>';
+
+    var wk = state.weeks[tab];
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var days = wk.days.filter(function (d) { return new Date(d.date) >= today; }); // vergangene Tage ausblenden
+    if (!days.length) h += '<div class="empty">Für diese Woche gibt es (noch) keinen Speiseplan.</div>';
+    days.forEach(function (d) {
+      var mine = d.votes.filter(function (v) { return v.name.toLowerCase() === me; })[0];
+      h += '<section class="day"><div class="day-head"><h2>' + esc(d.name) + ' <span style="font-weight:400;color:var(--muted)">' + fmtDate(d.date) + '</span></h2>' +
+        '<div class="when' + (d.open ? '' : ' closed') + '">' + (d.open ? 'Abstimmen bis<br>' + fmtDeadline(d.closesAt) : 'geschlossen') + '</div></div>';
+      d.dishes.forEach(function (x) {
+        var who = d.votes.filter(function (v) { return v.line === x.line; });
+        var isMine = mine && mine.line === x.line;
+        h += '<button class="dish' + (isMine ? ' mine' : '') + '" ' + (d.open ? '' : 'disabled ') +
+          'data-y="' + wk.year + '" data-w="' + wk.week + '" data-d="' + d.day + '" data-l="' + x.line + '">' +
+          '<span class="dot"></span><span class="info"><span class="line">' + esc(x.lineName) + '</span>' +
+          '<div class="title">' + esc(x.title) + '</div><div class="desc">' + esc(x.description) + '</div>' +
+          (who.length ? '<div class="names">' + who.map(function (v) { return esc(v.name); }).join(', ') + '</div>' : '') +
+          '</span><span class="count' + (who.length ? ' has' : '') + '">' + who.length + '</span></button>';
+      });
+      if (d.open && mine) {
+        h += '<button class="dish none" data-y="' + wk.year + '" data-w="' + wk.week + '" data-d="' + d.day + '" data-l="">' +
+          '<span class="dot"></span><span class="info"><div class="title">Doch nichts für mich</div></span></button>';
+      }
+      var total = d.votes.length;
+      h += '<div class="sum">' + (total ? '<b>' + total + ' Essen</b> · ' + d.dishes.filter(function (x) {
+          return d.votes.some(function (v) { return v.line === x.line; });
+        }).map(function (x) {
+          return d.votes.filter(function (v) { return v.line === x.line; }).length + '× ' + esc(x.lineName);
+        }).join(', ') : 'Noch keine Stimmen') + '</div></section>';
+    });
+    app.innerHTML = h;
+
+    var nameIn = document.getElementById('nameIn');
+    nameIn.onchange = function () { name = nameIn.value.trim(); store.set('mm_name', name); render(); };
+    Array.prototype.forEach.call(app.querySelectorAll('.tab'), function (b) {
+      b.onclick = function () { tab = +b.getAttribute('data-tab'); render(); };
+    });
+    Array.prototype.forEach.call(app.querySelectorAll('.dish:not(:disabled)'), function (b) {
+      b.onclick = function () { castVote(b); };
+    });
+  }
+
+  function castVote(b) {
+    if (busy) return;
+    name = document.getElementById('nameIn').value.trim();
+    if (!name) { toast('Bitte zuerst deinen Namen auswählen bzw. eintragen.'); document.getElementById('nameIn').focus(); return; }
+    store.set('mm_name', name);
+    busy = true; b.style.opacity = .5;
+    var line = b.getAttribute('data-l');
+    google.script.run.withSuccessHandler(function (s) {
+      busy = false; state = s; render(); toast(line ? 'Gespeichert ✓' : 'Ausgetragen ✓');
+    }).withFailureHandler(function (e) {
+      busy = false; b.style.opacity = 1; toast(e.message);
+    }).vote(code, name, +b.getAttribute('data-y'), +b.getAttribute('data-w'), +b.getAttribute('data-d'), line === '' ? null : +line);
+  }
+
+  load();
+</script>
+</body>
+</html>
